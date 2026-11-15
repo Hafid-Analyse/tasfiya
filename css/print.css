@@ -92,3 +92,9 @@
 }
 
 .bal .rt:last-child td:first-child { width: 55%; }
+.ratios-t td:nth-child(3) { text-align: left; direction: ltr; font-weight: 700; white-space: nowrap; }
+.ratios-t tr.r-good td:nth-child(3), .ratios-t tr.r-good td:last-child { color: #1f7a4d; }
+.ratios-t tr.r-bad td:nth-child(3), .ratios-t tr.r-bad td:last-child { color: #b4372f; }
+.rt tr.r-bad td { color: #b4372f; font-weight: 700; }
+.bal.two { grid-template-columns: 1fr 1fr; }
+.bal.two .rt td:nth-child(n+2), .bal.two .rt th:nth-child(n+2) { text-align: left; direction: ltr; white-space: nowrap; }

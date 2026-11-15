@@ -16,7 +16,7 @@
 var SCHEMA = {
   Companies:     ['id', 'name', 'nameFr', 'legalForm', 'address', 'phone', 'logo', 'createdAt'],
   Years:         ['id', 'companyId', 'label', 'start', 'end', 'status', 'zakatMode', 'zakatRate', 'nisab',
-                  'reservePct', 'effortPct', 'prevReserve', 'notes', 'createdAt'],
+                  'reservePct', 'effortPct', 'prevReserve', 'notes', 'createdAt', 'closedAt'],
   Partners:      ['id', 'companyId', 'name', 'order', 'active'],
   PartnerYear:   ['id', 'yearId', 'partnerId', 'openingCapital', 'effortShare', 'profitAdvances',
                   'postWithdrawals', 'notes'],
@@ -26,6 +26,7 @@ var SCHEMA = {
   Deductions:    ['id', 'yearId', 'label', 'labelFr', 'pct'],
   Checklists:    ['id', 'yearId', 'step', 'itemId', 'checked', 'at'],
   ChecklistDefs: ['id', 'step', 'text', 'order'],
+  PnL:           ['id', 'yearId', 'kind', 'label', 'labelFr', 'amount', 'order'],
   Results:       ['id', 'yearId', 'partnerId', 'data', 'at'],
   Settings:      ['key', 'value']
 };
@@ -36,6 +37,20 @@ var NUMERIC = {
 };
 
 /* ===================== التركيب ===================== */
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('⚖️ تصفية')
+    .addItem('1) تشغيل الإعداد (مرة واحدة)', 'setup')
+    .addItem('عرض المفتاح السري', 'showApiKey')
+    .addItem('توليد مفتاح سري جديد', 'resetApiKey')
+    .addToUi();
+}
+
+function showApiKey() {
+  var key = PropertiesService.getScriptProperties().getProperty('API_KEY') || setup();
+  SpreadsheetApp.getUi().alert('المفتاح السري', key + '\n\nضعه في إعدادات التطبيق مع رابط Web app.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
 
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -107,7 +122,9 @@ function seedChecklists_() {
     ['liabilities', 'هل أدرجت أجور ومنح العمال غير المدفوعة؟'],
     ['liabilities', 'هل أدرجت الكراء والخدمات (كهرباء، هاتف…) المستحقة؟'],
     ['distribution', 'هل حدّدت النصاب بقيمة 85غ ذهب يوم الحول؟'],
-    ['distribution', 'هل راجع الشركاء نسب التوزيع ووافقوا عليها؟']
+    ['distribution', 'هل راجع الشركاء نسب التوزيع ووافقوا عليها؟'],
+    ['analysis', 'هل أدخلت رقم الأعمال والتكاليف من دفاتر السنة؟'],
+    ['analysis', 'هل فسّرت الفرق بين نتيجة الجرد ونتيجة الحسابات إن وُجد؟']
   ];
   var rows = defs.map(function (d, i) { return ['cl' + (i + 1), d[0], d[1], String(i + 1)]; });
   sh.getRange(2, 1, rows.length, 4).setValues(rows);

@@ -3,10 +3,10 @@ import { db } from './store.js';
 import { compute } from './calc.js';
 import { ASSET_CATEGORIES, ASSET_ACCOUNTS, AUTO_ADVANCES, LIABILITY_ACCOUNTS, STATUSES, accountOf, statusOf } from './config.js';
 import { checklistDefs } from './checks.js';
-import { distributionTable } from './steps.js';
+import { distributionTable, ratioRows } from './steps.js';
 import { fmt, fmtPct, fmtDate, esc } from './util.js';
 
-let O = { lang: 'ar', logo: true, sign: true, partner: 'all' };
+let O = { lang: 'arfr', logo: true, sign: true, partner: 'all' };
 const T = (ar, fr) => (O.lang === 'arfr' && fr ? `${ar}<span class="fr">${esc(fr)}</span>` : ar);
 
 function header(R, company, titleAr, titleFr) {
@@ -176,6 +176,75 @@ function inventory(R, company) {
   ${signatures([T('القائم بالجرد', "L'inventoriste"), T('المسيّر', 'Le gérant'), T('عن الشركاء', 'Pour les associés')])}`);
 }
 
+/* ---------- التحليل المالي وتحليل النتيجة ---------- */
+function analysis(R, company) {
+  const P = R.pnl;
+  const pc = v => (P.hasData ? fmtPct(P.pct(v), 1) : '');
+  const L = (ar, fr, v, cls = '') => `<tr class="${cls}"><td>${T(ar, fr)}</td><td>${fmt(v)}</td><td>${pc(v)}</td></tr>`;
+  const groups = [['fixed', 'التكاليف الثابتة', 'Charges fixes'], ['variable', 'التكاليف المتغيرة', 'Charges variables']];
+  return page(`${header(R, company, 'التحليل المالي وتحليل النتيجة', 'Analyse financière et du résultat')}
+  <h3 class="r-sub">${T('المعدلات المالية', 'Ratios financiers')}</h3>
+  <table class="rt small ratios-t"><thead><tr><th>${T('المعدل', 'Ratio')}</th><th>${T('طريقة الحساب', 'Formule')}</th><th>${T('القيمة', 'Valeur')}</th><th>${T('المقبول', 'Norme')}</th><th></th></tr></thead><tbody>
+    ${ratioRows(R).map(r => `<tr class="r-${r.st}"><td><b>${T(r.ar, r.fr)}</b></td><td>${r.desc}</td><td>${r.v === null ? '—' : fmtPct(r.v, 1)}</td><td>${r.norm}</td>
+      <td>${r.st === 'good' ? '✔' : r.st === 'bad' ? '✖' : ''}</td></tr>`).join('')}
+  </tbody></table>
+  <h3 class="r-sub">${T('تحليل النتيجة', 'Analyse du résultat')}</h3>
+  ${P.rows.length ? `<div class="bal two">
+    <table class="rt small stmt-like"><thead><tr><th>${T('البيان', 'Libellé')}</th><th>${T('المبلغ', 'Montant')}</th><th>%</th></tr></thead><tbody>
+      ${L('رقم الأعمال', "Chiffre d'affaires", P.revenue, 'grp')}
+      ${L('مستهلكات المخزون', 'Consommations', P.consumption)}
+      ${L('الهامش الإجمالي', 'Marge brute', P.gross, 'grp')}
+      ${L('التكاليف الثابتة', 'Charges fixes', P.fixed)}
+      ${L('التكاليف المتغيرة', 'Charges variables', P.variable)}
+      ${L('اهتلاكات السنة', 'Dotations', P.depreciation)}
+      ${L('نتيجة الحسابات', 'Résultat comptable', P.net, 'grp')}
+      <tr><td>${T('نتيجة الجرد', "Résultat d'inventaire")}</td><td>${fmt(R.result.net)}</td><td></td></tr>
+      <tr class="${Math.abs(P.diff) > 1 ? 'r-bad' : ''}"><td>${T('الفرق', 'Écart')}</td><td>${fmt(P.diff)}</td><td></td></tr>
+      ${P.breakEven !== null ? `<tr><td>${T('عتبة المردودية', 'Seuil de rentabilité')}</td><td>${fmt(P.breakEven)}</td><td></td></tr>` : ''}
+    </tbody></table>
+    <table class="rt small"><thead><tr><th>${T('تفصيل التكاليف', 'Détail des charges')}</th><th>${T('المبلغ', 'Montant')}</th><th>%</th></tr></thead><tbody>
+      ${groups.map(([k, ar, fr]) => `<tr class="grp"><td>${T(ar, fr)}</td><td>${fmt(P[k])}</td><td>${fmtPct(P[k] ? 100 : 0, 0)}</td></tr>
+        ${P.rows.filter(r => r.kind === k && r.amount).map(r => `<tr><td class="ind">${esc(r.label)}</td><td>${fmt(r.amount)}</td><td>${fmtPct(P[k] ? r.amount / P[k] * 100 : 0, 1)}</td></tr>`).join('')}`).join('')}
+    </tbody></table></div>` : `<p class="muted">${T('لم تُدخل بنود الحسابات لهذه الدورة', '')}</p>`}`);
+}
+
+/* ---------- الميزانية الافتتاحية ---------- */
+function opening(R, company) {
+  const O2 = R.opening;
+  const actif = ASSET_CATEGORIES.map(c => {
+    const net = R.assets.byCat[c.key].net - (c.key === 'receivables' ? R.totals.advances : 0);
+    return `<tr><td>${c.code}</td><td>${T(c.ar, c.fr)}</td><td>${fmt(net)}</td></tr>`;
+  }).join('');
+  const liabAccs = LIABILITY_ACCOUNTS.map(a => {
+    const v = R.liabilities.rows.filter(l => l.account === a.key).reduce((s, r) => s + r.amount, 0);
+    return v ? `<tr><td class="ind">${T(a.ar, a.fr)}</td><td>${fmt(v)}</td></tr>` : '';
+  }).join('');
+  const extra = O2.extraLiab.map(l => {
+    const a = LIABILITY_ACCOUNTS.find(x => x.key === l.key) || {};
+    return `<tr><td class="ind">${T(esc(l.label || a.ar), l.labelFr || a.fr)} <small>(${T('من التوزيع', '')})</small></td><td>${fmt(l.amount)}</td></tr>`;
+  }).join('');
+  return page(`${header(R, company, 'الميزانية الافتتاحية', "Bilan d'ouverture")}
+  <p class="note">${T('للدورة التي تبدأ بعد', 'Exercice suivant le')} ${fmtDate(R.year.end)} — ${T('بعد توزيع الأرباح ودفع الزكاة والاقتطاعات.', '')}</p>
+  <div class="bal">
+    <table class="rt"><thead><tr><th colspan="3" class="side">${T('الأصول', 'Actif')}</th></tr>
+      <tr><th></th><th>${T('الحسابات', 'Comptes')}</th><th>${T('المبالغ', 'Montants')}</th></tr></thead>
+      <tbody>${actif}</tbody>
+      <tfoot><tr><td></td><td>${T('مجموع الأصول', 'Total actif')}</td><td>${fmt(O2.assetsNet)}</td></tr></tfoot></table>
+    <table class="rt"><thead><tr><th colspan="2" class="side">${T('الخصوم', 'Passif')}</th></tr>
+      <tr><th>${T('الحسابات', 'Comptes')}</th><th>${T('المبالغ', 'Montants')}</th></tr></thead>
+      <tbody>
+        <tr class="grp"><td>${T('رؤوس الأموال', 'Capitaux propres')}</td><td>${fmt(O2.equityTotal)}</td></tr>
+        ${O2.partners.map(p => `<tr><td class="ind">${esc(p.name)} (${fmtPct(p.ratio * 100, 1)})</td><td>${fmt(p.capital)}</td></tr>`).join('')}
+        ${O2.reserves ? `<tr><td class="ind">${T('الاحتياط', 'Réserves')}</td><td>${fmt(O2.reserves)}</td></tr>` : ''}
+        <tr class="grp"><td>${T('الديون', 'Dettes')}</td><td>${fmt(O2.liabTotal)}</td></tr>
+        ${liabAccs}${extra}
+      </tbody>
+      <tfoot><tr><td>${T('مجموع الخصوم', 'Total passif')}</td><td>${fmt(O2.equityTotal + O2.liabTotal)}</td></tr></tfoot></table>
+  </div>
+  ${Math.abs(O2.balanceGap) > 0.05 ? `<p class="note neg">${T('تنبيه: فارق في التوازن', 'Écart')} ${fmt(O2.balanceGap)}</p>` : ''}
+  ${signatures([T('المحاسب', 'Le comptable'), T('المسيّر', 'Le gérant')])}`);
+}
+
 /* ---------- التجميع ---------- */
 export function buildReport(yearId, rep, opts) {
   O = { ...O, ...opts };
@@ -188,7 +257,9 @@ export function buildReport(yearId, rep, opts) {
     statements: stmts,
     capital: () => capital(R, company),
     inventory: () => inventory(R, company),
+    analysis: () => analysis(R, company),
+    opening: () => opening(R, company),
   };
-  if (rep === 'all') return map.balance() + map.distribution() + map.inventory() + map.capital() + stmts();
+  if (rep === 'all') return map.balance() + map.distribution() + map.inventory() + map.capital() + map.analysis() + map.opening() + stmts();
   return map[rep]();
 }

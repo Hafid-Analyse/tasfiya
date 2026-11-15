@@ -106,7 +106,7 @@ export function compute(yearId) {
   // ---------- رؤوس الأموال والنتيجة ----------
   const prevReserve = num(year.prevReserve);
   const equity = { netCapital: sumNet, prevReserve, total: sumNet + prevReserve };
-  const net = assets.net - liabilities.total - equity.total;
+  const net = round2(assets.net - liabilities.total - equity.total);
   const isLoss = net < 0;
 
   const deductions = db.Deductions.filter(d => d.yearId === yearId).map(d => ({
@@ -160,10 +160,68 @@ export function compute(yearId) {
     year, days, partners, assets, liabilities, equity, totals,
     result: { net, isLoss, deductions, dedTotal, afterDed, reservePct, reserve, distributable, effortPct, effortPool, moneyPool },
     zakat: { rate: zakatRate, nisab, total: totals.zakat },
-    ratios: {
-      projectYield: safeDiv(net, sumInvested) * 100,
-      financialYield: safeDiv(moneyPool, sumInvested) * 100,
-    },
+    ratios: financialRatios({ net, moneyPool, sumInvested, assets, liabilities, equity }),
+    pnl: computePnL(yearId, assets, net),
+    opening: computeOpening({ assets, liabilities, equity, partners, totals, deductions, reserve, sumAdvances }),
     checks: { distributedCheck, distributionOk: Math.abs(distributedCheck) < 0.05 },
+  };
+}
+
+/** المعدلات المالية من الميزانية الختامية (null = غير قابل للحساب) */
+function financialRatios({ net, moneyPool, sumInvested, assets, liabilities, equity }) {
+  const pct = (a, b) => (b ? (a / b) * 100 : null);
+  const cat = k => assets.byCat[k]?.net || 0;
+  const clients = (assets.byCat.receivables?.rows || []).filter(r => r.account === 'clients').reduce((s, r) => s + r.net, 0);
+  const eq = equity.total;
+  const passif = eq + liabilities.total + net;
+  const current = cat('stocks') + cat('receivables') + cat('treasury');
+  return {
+    projectYield: pct(net, sumInvested),
+    financialYield: pct(moneyPool, sumInvested),
+    debt: pct(liabilities.total, eq),
+    clientRisk: pct(clients, eq),
+    stockRisk: pct(cat('stocks'), eq),
+    autonomy: pct(eq, passif),
+    liquidity: pct(current, liabilities.total),
+    immediate: pct(cat('treasury'), liabilities.total),
+    investFinancing: pct(cat('invest'), eq),
+  };
+}
+
+/** تحليل النتيجة: من رقم الأعمال إلى النتيجة، ومقارنتها بنتيجة الجرد */
+export function computePnL(yearId, assets, balanceNet) {
+  const rows = db.PnL.filter(r => r.yearId === yearId).map(r => ({ ...r, amount: num(r.amount) }))
+    .sort((a, b) => num(a.order) - num(b.order));
+  const sumK = k => rows.filter(r => r.kind === k).reduce((s, r) => s + r.amount, 0);
+  const revenue = sumK('revenue'), consumption = sumK('consumption'), fixed = sumK('fixed'), variable = sumK('variable');
+  const depreciation = sumK('depr');
+  const gross = revenue - consumption;
+  const net = gross - fixed - variable - depreciation;
+  const contribution = revenue - consumption - variable;
+  const contribRate = safeDiv(contribution, revenue);
+  return {
+    rows, revenue, consumption, fixed, variable, depreciation, gross, net, contribution, contribRate,
+    breakEven: contribRate > 0 ? (fixed + depreciation) / contribRate : null,
+    pct: v => safeDiv(v, revenue) * 100,
+    diff: rows.length ? round2(net - balanceNet) : 0,
+    hasData: revenue > 0,
+  };
+}
+
+/** الميزانية الافتتاحية للدورة الموالية — تُشتق من الختامية بعد التوزيع */
+function computeOpening({ assets, liabilities, equity, partners, totals, deductions, reserve, sumAdvances }) {
+  const assetsNet = assets.net - sumAdvances; // تسبيقات الربح خُصمت من حسابات الشركاء
+  const extraLiab = [];
+  if (totals.zakat) extraLiab.push({ key: 'zakat_due', amount: totals.zakat });
+  deductions.filter(d => d.amount > 0).forEach(d => extraLiab.push({ key: 'liab_other', label: d.label, labelFr: d.labelFr, amount: d.amount }));
+  if (totals.postWithdrawals) extraLiab.push({ key: 'associes', label: 'سحوبات الشركاء المستحقة', labelFr: 'Retraits dus aux associés', amount: totals.postWithdrawals });
+  const liabTotal = liabilities.total + extraLiab.reduce((s, l) => s + l.amount, 0);
+  const capital = totals.newCapital;
+  const reserves = equity.prevReserve + reserve;
+  return {
+    assetsNet, extraLiab, liabTotal, capital, reserves,
+    equityTotal: capital + reserves,
+    balanceGap: round2(assetsNet - liabTotal - capital - reserves),
+    partners: partners.map(x => ({ name: x.p.name, capital: x.newCapital, ratio: x.newRatio })),
   };
 }

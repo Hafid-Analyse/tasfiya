@@ -90,8 +90,14 @@ export function runChecks(R) {
     add('warn', 'distribution', `${x.p.name}: أصبح مديناً للشركة بـ ${fmt(-x.newCapital)}`, x.p.id));
   if (!R.checks.distributionOk) add('error', 'distribution', `خلل في التوزيع: فرق ${fmt(R.checks.distributedCheck)} — راجع نسب الشركاء`);
 
+  // ---- التحليل ----
+  if (!R.pnl.hasData) add('info', 'analysis', 'لم تُدخل رقم الأعمال بعد — تحليل النتيجة اختياري لكنه مفيد');
+  else if (Math.abs(R.pnl.diff) > 1)
+    add('warn', 'analysis', `نتيجة الحسابات (${fmt(R.pnl.net)}) تختلف عن نتيجة الجرد (${fmt(R.result.net)}) بفارق ${fmt(R.pnl.diff)} — ابحث عن السبب`);
+  if (Math.abs(R.opening.balanceGap) > 0.05) add('error', 'analysis', `الميزانية الافتتاحية غير متوازنة بفارق ${fmt(R.opening.balanceGap)}`);
+
   // ---- قوائم التحقق ----
-  ['partners', 'capital', 'invest', 'stocks', 'receivables', 'treasury', 'liabilities', 'distribution'].forEach(step => {
+  ['partners', 'capital', 'invest', 'stocks', 'receivables', 'treasury', 'liabilities', 'distribution', 'analysis'].forEach(step => {
     const s = checklistState(year.id, step);
     if (s.total && s.done < s.total) add('check', step, `قائمة التحقق: ${s.done} من ${s.total} مؤكَّدة`);
   });

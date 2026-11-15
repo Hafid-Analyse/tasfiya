@@ -98,7 +98,54 @@ export const STEPS = [
   { key: 'treasury', ar: 'الخزينة', icon: '💰', cat: 'treasury' },
   { key: 'liabilities', ar: 'الخصوم والديون', icon: '📕' },
   { key: 'distribution', ar: 'النتيجة والتوزيع والزكاة', icon: '⚖️' },
-  { key: 'reports', ar: 'الكشوفات والطباعة', icon: '🖨️' },
+  { key: 'analysis', ar: 'تحليل النتيجة والميزانية', icon: '📈' },
+  { key: 'reports', ar: 'الكشوفات والإقفال', icon: '🖨️' },
+];
+
+export const STEP_DESC = {
+  setup: 'حدّد الدورة ونسب التوزيع والزكاة والاقتطاعات — مرة واحدة في بداية الجرد.',
+  partners: 'من هم الشركاء، وبكم دخل كل واحد، وما نصيبه من الجهد.',
+  capital: 'كل مال خرج أو دخل خلال السنة، بتاريخه، ليُرجَّح بالأيام.',
+  invest: 'المعدات ووسائل النقل والتجهيزات بعد خصم تناقص قيمتها.',
+  stocks: 'ما في المستودع بعد العدّ الفعلي، مع فرز التالف والراكد.',
+  receivables: 'ما لك عند الناس — زبوناً زبوناً — مؤكَّداً أو مشكوكاً فيه أو معدوماً.',
+  treasury: 'النقد في الصندوق والأرصدة في البنك والبريد يوم الجرد.',
+  liabilities: 'ما على الشركة للغير يوم الجرد.',
+  distribution: 'النتيجة، والاقتطاعات، والاحتياط، ونصيب كل شريك، وزكاته، ورأس ماله الجديد.',
+  analysis: 'تحليل الإيرادات والتكاليف، ومؤشرات الهيكلة المالية مقارنة بالمعدلات المقبولة.',
+  reports: 'معاينة وطباعة كل الكشوفات، والتصدير إلى Excel، ثم إقفال الدورة.',
+};
+
+export const PNL_KINDS = [
+  { key: 'revenue', ar: 'رقم الأعمال (المبيعات)', fr: "Chiffre d'affaires" },
+  { key: 'consumption', ar: 'مستهلكات المخزون (تكلفة البضاعة المباعة)', fr: 'Consommations' },
+  { key: 'fixed', ar: 'التكاليف الثابتة', fr: 'Charges fixes' },
+  { key: 'variable', ar: 'التكاليف المتغيرة', fr: 'Charges variables' },
+  { key: 'depr', ar: 'اهتلاكات السنة', fr: "Dotations de l'exercice" },
+];
+
+export const DEFAULT_PNL = [
+  ['revenue', 'رقم الأعمال', "Chiffre d'affaires"],
+  ['consumption', 'مستهلكات المخزون', 'Consommations de stocks'],
+  ['fixed', 'الأجور', 'Salaires'], ['fixed', 'المنح الثابتة', 'Primes fixes'], ['fixed', 'الكراء', 'Loyer'],
+  ['fixed', 'الإطعام', 'Restauration'], ['fixed', 'الهاتف / الكهرباء / الماء / الغاز', 'Téléphone, énergie'],
+  ['fixed', 'الإشهار', 'Publicité'], ['fixed', 'الضرائب', 'Impôts'], ['fixed', 'الضمان الاجتماعي', 'Sécurité sociale'],
+  ['variable', 'لوازم ومستهلكات أخرى', 'Fournitures'], ['variable', 'تنقلات', 'Déplacements'], ['variable', 'نقل', 'Transport'],
+  ['variable', 'منح متغيرة', 'Primes variables'], ['variable', 'صيانة', 'Entretien'],
+  ['depr', 'اهتلاك المعدات ووسائل النقل', 'Dotations aux amortissements'],
+];
+
+// المعدلات المالية: ok(v) يرجع true إن كانت النسبة مقبولة
+export const RATIOS = [
+  { key: 'projectYield', group: 'yield', ar: 'مردودية المشروع', fr: 'Rentabilité du projet', desc: 'النتيجة الصافية ÷ رأس المال المستثمر', norm: 'حسب النشاط', ok: null },
+  { key: 'financialYield', group: 'yield', ar: 'المردودية المالية', fr: 'Rentabilité financière', desc: 'ربح المال ÷ رأس المال المستثمر', norm: 'أكبر من 20%', ok: v => v > 20 },
+  { key: 'debt', group: 'structure', ar: 'معدل المديونية', fr: "Taux d'endettement", desc: 'الديون ÷ رؤوس الأموال', norm: 'أقل من 33,33%', ok: v => v < 33.33 },
+  { key: 'clientRisk', group: 'structure', ar: 'خطر عدم سداد الزبائن', fr: 'Risque clients', desc: 'ديون الزبائن ÷ رؤوس الأموال', norm: 'أقل من 33,33%', ok: v => v < 33.33 },
+  { key: 'stockRisk', group: 'structure', ar: 'خطر الكساد', fr: 'Risque de stock', desc: 'المخزون ÷ رؤوس الأموال', norm: 'أقل من 70%', ok: v => v < 70 },
+  { key: 'autonomy', group: 'structure', ar: 'الاستقلالية المالية', fr: 'Autonomie financière', desc: 'رؤوس الأموال ÷ مجموع الخصوم', norm: 'أكبر من 50%', ok: v => v > 50 },
+  { key: 'liquidity', group: 'structure', ar: 'معدل السيولة', fr: 'Liquidité générale', desc: 'الأصول المتداولة ÷ الديون', norm: 'أكبر أو يساوي 100%', ok: v => v >= 100 },
+  { key: 'immediate', group: 'structure', ar: 'معدل السيولة الآنية', fr: 'Liquidité immédiate', desc: 'الخزينة ÷ الديون', norm: 'بين 10% و25%', ok: v => v >= 10 && v <= 25 },
+  { key: 'investFinancing', group: 'structure', ar: 'تمويل الاستثمارات', fr: 'Financement des invest.', desc: 'الاستثمارات ÷ رؤوس الأموال (مهم في الصناعة)', norm: 'أقل من 25%', ok: v => v < 25 },
 ];
 
 // قوائم التحقق الافتراضية (تُستبدل بورقة ChecklistDefs إن وُجدت)
@@ -126,6 +173,8 @@ export const DEFAULT_CHECKLISTS = [
   ['liabilities', 'هل أدرجت الكراء والخدمات (كهرباء، هاتف…) المستحقة؟'],
   ['distribution', 'هل حدّدت النصاب بقيمة 85غ ذهب يوم الحول؟'],
   ['distribution', 'هل راجع الشركاء نسب التوزيع ووافقوا عليها؟'],
+  ['analysis', 'هل أدخلت رقم الأعمال والتكاليف من دفاتر السنة؟'],
+  ['analysis', 'هل فسّرت الفرق بين نتيجة الجرد ونتيجة الحسابات إن وُجد؟'],
 ].map(([step, text], i) => ({ id: 'cl' + (i + 1), step, text, order: i + 1 }));
 
 export function accountOf(cat, key) {

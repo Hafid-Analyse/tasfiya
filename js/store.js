@@ -1,7 +1,7 @@
 // طبقة البيانات: نسخة في الذاكرة + حفظ في Apps Script (أو محلياً للتجربة)
 
 const TABLES = ['Companies', 'Years', 'Partners', 'PartnerYear', 'CapitalMoves', 'Assets',
-  'Liabilities', 'Deductions', 'Checklists', 'ChecklistDefs', 'Results'];
+  'Liabilities', 'Deductions', 'Checklists', 'ChecklistDefs', 'PnL', 'Results'];
 const LS_DB = 'tasfiya.db';
 const LS_CFG = 'tasfiya.cfg';
 

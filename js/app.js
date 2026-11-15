@@ -4,6 +4,9 @@ import { compute, num, round2 } from './calc.js';
 import { runChecks } from './checks.js';
 import { renderYear, headChips, stepper, summaryFor, liveValues, newPartner, newAsset, newLiability, zakatRateFor } from './steps.js';
 import { buildReport } from './reports.js';
+import { createYear, closeYear, unlockYear, seedPnl, addDays } from './years.js';
+import { loadDemo } from './demo.js';
+import { exportYearXlsx } from './export.js';
 import { DEFAULT_DEDUCTIONS, STEPS, LIABILITY_ACCOUNTS, ASSET_ACCOUNTS } from './config.js';
 import { $, $$, esc, fmt, fmtDate, toast, confirmBox, imageToDataURL, download, debounce } from './util.js';
 
@@ -24,7 +27,10 @@ function render(keepScroll = false) {
   route = parseRoute();
   if (route.name === 'home') app.innerHTML = homeView();
   else if (route.name === 'company') app.innerHTML = companyView(route.id);
-  else app.innerHTML = renderYear(route.id, route.step);
+  else {
+    app.innerHTML = renderYear(route.id, route.step);
+    $$('.step-body.locked [data-t], .step-body.locked .cl-item input').forEach(el => (el.disabled = true));
+  }
   if (keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
 }
 
@@ -46,7 +52,9 @@ function homeView() {
         <div class="co-txt"><b>${esc(c.name || 'شركة بلا اسم')}</b><small>${years.length} دورة • ${db.Partners.filter(p => p.companyId === c.id).length} شريك</small></div></a>`;
     }).join('')}
     <button class="co-card add" data-action="addCompany"><div class="co-logo"><span>+</span></div><div class="co-txt"><b>شركة جديدة</b><small>ابدأ تصفية جديدة</small></div></button>
-  </div>`;
+  </div>
+  <div class="demo-box"><div><b>🎓 جرّب بشركة نموذجية</b><small>شركة تعبئة براغي بثلاثة شركاء: دورة 2024 كاملة ومقفلة، ودورة 2025 قيد الجرد بتنبيهات مفتوحة.</small></div>
+    <button class="btn gold" data-action="loadDemo">تحميل الشركة النموذجية</button></div>`;
 }
 
 /* ===================== صفحة الشركة ===================== */
@@ -86,15 +94,41 @@ function companyView(id) {
           <button class="icon-btn" data-action="delYear" data-id="${y.id}" title="حذف الدورة">🗑</button></div>`;
       }).join('') || '<div class="empty">لا دورات بعد — أنشئ الأولى</div>'}
     </div>
+    ${years.length > 1 ? compareBlock(years.slice().reverse()) : ''}
     <div class="danger-zone"><button class="btn ghost small danger-txt" data-action="delCompany" data-id="${c.id}">حذف الشركة وكل بياناتها</button></div>
   </div>`;
 }
 
-/* ===================== إنشاء دورة ===================== */
+/* ===================== المقارنة بين الدورات ===================== */
 
-function addDays(s, n) {
-  const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10);
+function compareBlock(years) {
+  const Rs = years.map(y => compute(y.id));
+  const cols = [
+    ['capital', 'رأس المال الصافي', R => R.totals.net],
+    ['invested', 'المستثمر', R => R.totals.invested],
+    ['result', 'النتيجة', R => R.result.net],
+    ['zakat', 'الزكاة', R => R.zakat.total],
+    ['newCap', 'رأس المال الجديد', R => R.totals.newCapital],
+  ];
+  const max = {};
+  cols.forEach(([k, , f]) => (max[k] = Math.max(1, ...Rs.map(R => Math.abs(f(R))))));
+  const bar = (k, v) => `<div class="dbar ${v < 0 ? 'neg' : ''} ${k}"><i style="width:${Math.round(Math.abs(v) / max[k] * 100)}%"></i><span>${fmt(v, 0)}</span></div>`;
+  const delta = (R, i) => {
+    if (!i) return '';
+    const a = Rs[i - 1].result.net, b = R.result.net;
+    if (!a) return '';
+    const d = (b - a) / Math.abs(a) * 100;
+    return `<small class="${d >= 0 ? 'pos' : 'neg'}">${d >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d), 0)}%</small>`;
+  };
+  return `<div class="card compare"><h3>📊 تطور الشركة عبر الدورات</h3>
+    <table class="tbl cmp"><thead><tr><th>الدورة</th>${cols.map(c => `<th>${c[1]}</th>`).join('')}<th>مردودية المشروع</th></tr></thead><tbody>
+    ${Rs.map((R, i) => `<tr><td><b>${esc(R.year.label)}</b> ${R.year.status === 'closed' ? '🔒' : ''}</td>
+      ${cols.map(([k, , f]) => `<td>${bar(k, f(R))}${k === 'result' ? delta(R, i) : ''}</td>`).join('')}
+      <td class="calc">${R.ratios.projectYield === null ? '—' : fmt(R.ratios.projectYield, 1) + ' %'}</td></tr>`).join('')}
+    </tbody></table></div>`;
 }
+
+/* ===================== إنشاء دورة ===================== */
 
 function newYearModal(companyId) {
   const prev = db.Years.filter(y => y.companyId === companyId).sort((a, b) => (b.end || '').localeCompare(a.end || ''))[0];
@@ -106,34 +140,16 @@ function newYearModal(companyId) {
     <div class="grid g3"><label>الاسم<input id="ny-label" value="${start.slice(0, 4)}"></label>
     <label>البداية<input type="date" id="ny-start" value="${start}"></label><label>النهاية<input type="date" id="ny-end" value="${end}"></label></div>
     ${prev ? `<label class="check"><input type="checkbox" id="ny-carry" checked> نقل الشركاء ورأس المال الجديد والإعدادات من دورة «${esc(prev.label)}»</label>
-      <p class="hint">رأس المال الجديد لكل شريك في الدورة السابقة يصبح رأس ماله الافتتاحي، والاحتياط يُجمع في «احتياط السنوات السابقة»، وديون الزكاة والاقتطاعات تُنقل إلى الخصوم.</p>` : ''}
+      <p class="hint">رأس المال الجديد لكل شريك يصبح رأس ماله الافتتاحي، والاحتياط يُجمع، وديون الزكاة والاقتطاعات والسحوبات المستحقة تُنقل إلى الخصوم.
+      ${prev.status !== 'closed' ? '<br><b>تنبيه:</b> الدورة السابقة لم تُقفل بعد — أي تعديل فيها لاحقاً لن ينعكس هنا.' : ''}</p>` : ''}
     <div class="modal-actions"><button class="btn primary" data-ok>إنشاء</button><button class="btn ghost" data-no>إلغاء</button></div></div>`;
   document.body.appendChild(wrap);
   wrap.querySelector('[data-no]').onclick = () => wrap.remove();
   wrap.querySelector('[data-ok]').onclick = () => {
     const carry = prev && wrap.querySelector('#ny-carry')?.checked;
-    const y = {
-      id: uid('y'), companyId, label: $('#ny-label', wrap).value, start: $('#ny-start', wrap).value, end: $('#ny-end', wrap).value,
-      status: 'draft', zakatMode: 'solar', zakatRate: 2.577, nisab: '', reservePct: '', effortPct: '', prevReserve: '', notes: '',
-      createdAt: new Date().toISOString(),
-    };
-    if (carry) {
-      const R = compute(prev.id);
-      Object.assign(y, { zakatMode: prev.zakatMode, zakatRate: prev.zakatRate, reservePct: prev.reservePct, effortPct: prev.effortPct,
-        prevReserve: round2(num(prev.prevReserve) + R.result.reserve) || '' });
-      upsert('Years', y);
-      R.partners.forEach(x => upsert('PartnerYear', { id: uid('py'), yearId: y.id, partnerId: x.p.id,
-        openingCapital: round2(x.newCapital), effortShare: x.py.effortShare, profitAdvances: '', postWithdrawals: '', notes: '' }));
-      db.Deductions.filter(d => d.yearId === prev.id).forEach(d => upsert('Deductions', { ...d, id: uid('d'), yearId: y.id }));
-      if (R.zakat.total) newLiability(y.id, { account: 'zakat_due', label: `زكاة دورة ${prev.label}`, amount: round2(R.zakat.total) });
-      R.result.deductions.filter(d => d.amount > 0).forEach(d =>
-        newLiability(y.id, { account: 'liab_other', label: `${d.label} — دورة ${prev.label}`, amount: round2(d.amount) }));
-    } else {
-      upsert('Years', y);
-      DEFAULT_DEDUCTIONS.forEach(d => upsert('Deductions', { id: uid('d'), yearId: y.id, ...d }));
-    }
+    const id = createYear(companyId, { label: $('#ny-label', wrap).value, start: $('#ny-start', wrap).value, end: $('#ny-end', wrap).value }, carry ? prev.id : null);
     wrap.remove();
-    location.hash = `#/y/${y.id}/setup`;
+    location.hash = `#/y/${id}/setup`;
   };
 }
 
@@ -255,7 +271,7 @@ function parseAmount(s) {
 
 function printOpts() {
   return {
-    lang: $('#p-lang')?.value || 'ar',
+    lang: $('#p-lang')?.value || 'arfr',
     logo: $('#p-logo')?.checked ?? true,
     sign: $('#p-sign')?.checked ?? true,
     partner: $('#p-partner')?.value || 'all',
@@ -451,6 +467,26 @@ document.addEventListener('click', async e => {
       location.hash = `#/y/${year.id}/${b.dataset.next}`; break;
     }
 
+    case 'loadDemo': {
+      const cid = loadDemo(); toast('تم تحميل الشركة النموذجية', 'ok'); location.hash = `#/c/${cid}`; break;
+    }
+    case 'seedPnl': seedPnl(year.id); go(); break;
+    case 'addPnl': {
+      const id = uid('pl');
+      upsert('PnL', { id, yearId: year.id, kind: b.dataset.kind, label: '', labelFr: '', amount: '', order: db.PnL.length + 1 });
+      go(); setTimeout(() => focusRef(id), 60); break;
+    }
+    case 'exportXlsx': exportYearXlsx(year.id); toast('تم تجهيز ملف Excel', 'ok'); break;
+    case 'closeYear': {
+      const errs = runChecks(compute(year.id)).filter(i => i.level === 'error');
+      const msg = errs.length ? `توجد ${errs.length} أخطاء مفتوحة. هل تريد الإقفال رغم ذلك؟` : 'إقفال الدورة وتجميد نتائجها؟ يمكنك فتحها لاحقاً عند الحاجة.';
+      if (!(await confirmBox(msg, '🔒 إقفال', false))) return;
+      closeYear(year.id); toast('أُقفلت الدورة وحُفظت النتائج', 'ok'); go(); break;
+    }
+    case 'unlockYear': {
+      if (!(await confirmBox('فتح الدورة للتعديل؟ ستُعاد كتابة النتائج المجمّدة عند الإقفال القادم.', 'فتح', false))) return;
+      unlockYear(year.id); go(); break;
+    }
     case 'preview': preview(b.dataset.rep); break;
     case 'print': doPrint(b.dataset.rep); break;
   }

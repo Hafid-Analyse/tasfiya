@@ -3,7 +3,7 @@ import { db, upsert, uid } from './store.js';
 import { compute, num, yearDays } from './calc.js';
 import { runChecks, stepState, checklistState } from './checks.js';
 import {
-  STEPS, ASSET_ACCOUNTS, LIABILITY_ACCOUNTS, STATUSES, ZAKAT_MODES, statusOf, accountOf, liabilityOf,
+  STEPS, STEP_DESC, PNL_KINDS, RATIOS, ASSET_ACCOUNTS, LIABILITY_ACCOUNTS, STATUSES, ZAKAT_MODES, statusOf, accountOf, liabilityOf,
 } from './config.js';
 import { fmt, fmtPct, fmtDate, esc } from './util.js';
 
@@ -25,15 +25,17 @@ export function renderYear(yearId, step) {
   const company = db.Companies.find(c => c.id === R.year.companyId) || {};
   const issues = runChecks(R);
   const S = STEPS.find(s => s.key === step) || STEPS[0];
+  const locked = R.year.status === 'closed';
   return `
+  ${locked ? `<div class="locked-banner">🔒 هذه الدورة <b>مقفلة</b> منذ ${fmtDate((R.year.closedAt || '').slice(0, 10))} — العرض والطباعة فقط. <button class="btn ghost small" data-action="unlockYear">فتح الإقفال للتعديل</button></div>` : ''}
   <div class="year-head">
     <div class="crumbs"><a href="#/">الشركات</a> ‹ <a href="#/c/${company.id}">${esc(company.name)}</a> ‹ <b>${esc(R.year.label || 'سنة')}</b></div>
     <div class="chips" id="head-chips">${headChips(R, issues)}</div>
   </div>
   <div class="workspace">
     <aside class="stepper" id="stepper">${stepper(yearId, step, issues)}</aside>
-    <section class="step-body">
-      <div class="step-title"><span class="step-ico">${S.icon}</span><h2>${S.ar}</h2></div>
+    <section class="step-body ${locked ? 'locked' : ''}">
+      <div class="step-title"><span class="step-ico">${S.icon}</span><div><h2>${S.ar}</h2><p>${STEP_DESC[S.key] || ''}</p></div></div>
       ${STEP_RENDER[S.key](R, S)}
       ${S.key !== 'reports' && S.key !== 'setup' ? checklistBlock(R.year.id, S.key) : ''}
       ${stepIssues(issues, S.key)}
@@ -55,7 +57,10 @@ export function headChips(R, issues) {
 }
 
 export function stepper(yearId, current, issues) {
-  return STEPS.map((s, i) => {
+  const keys = STEPS.filter(s => s.key !== 'reports').map(s => s.key);
+  const okN = keys.filter(k => stepState(issues, k) === 'ok').length;
+  const pct = Math.round(okN / keys.length * 100);
+  return `<div class="progress"><div class="pr-top"><span>اكتمال الجرد</span><b>${pct}%</b></div><div class="pr-bar"><i style="width:${pct}%"></i></div></div>` + STEPS.map((s, i) => {
     const st = s.key === 'reports' ? '' : stepState(issues, s.key);
     return `<a href="#/y/${yearId}/${s.key}" class="st ${s.key === current ? 'active' : ''} ${st}">
       <span class="n">${i}</span><span class="lbl">${s.icon} ${s.ar}</span>
@@ -133,6 +138,10 @@ export function summaryFor(step, R) {
         box('رأس المال الصافي', fmt(R.totals.net)) + box('رأس المال المستثمر (المرجّح)', fmt(R.totals.invested), 'gold');
     case 'liabilities':
       return box('عدد الديون', R.liabilities.rows.length) + box('مجموع الديون', fmt(R.liabilities.total), 'neg');
+    case 'analysis':
+      return box('رقم الأعمال', fmt(R.pnl.revenue)) + box('الهامش الإجمالي', fmt(R.pnl.gross)) +
+        box('نتيجة الحسابات', fmt(R.pnl.net), R.pnl.net < 0 ? 'neg' : 'pos') +
+        box('الفرق مع الجرد', fmt(R.pnl.diff), Math.abs(R.pnl.diff) > 1 && R.pnl.hasData ? 'neg' : '');
     case 'distribution':
       return box('النتيجة الصافية', fmt(R.result.net), R.result.isLoss ? 'neg' : 'pos') +
         box('بعد الاقتطاعات', fmt(R.result.afterDed)) + box('الاحتياط', fmt(R.result.reserve)) +
@@ -375,7 +384,57 @@ export function distributionTable(R, opts = {}) {
   </tbody><tfoot><tr><td></td><td>المجموع</td>${cols.map(c => `<td>${cell(totals, c)}</td>`).join('')}</tr></tfoot></table>`;
 }
 
-/* ===================== 9. الكشوفات ===================== */
+/* ===================== 9. التحليل ===================== */
+
+export function ratioRows(R) {
+  return RATIOS.map(r => {
+    const v = R.ratios[r.key];
+    const st = v === null ? 'na' : r.ok ? (r.ok(v) ? 'good' : 'bad') : 'neutral';
+    return { ...r, v, st };
+  });
+}
+
+function stepAnalysis(R) {
+  const P = R.pnl;
+  const kindRows = k => P.rows.filter(r => r.kind === k);
+  const line = (label, v, cls = '') => `<div class="cl ${cls}"><span>${label}</span><b>${fmt(v)}</b><em>${P.hasData ? fmtPct(P.pct(v), 1) : ''}</em></div>`;
+  return `${summaryBlock('analysis', R)}
+  <div class="grid g2 analysis">
+    <div class="card">
+      <h3>بنود الحسابات</h3>
+      ${P.rows.length ? PNL_KINDS.map(k => `<div class="pnl-group"><h4>${k.ar}</h4>
+        <table class="tbl"><tbody>${kindRows(k.key).map(r => `<tr data-ref="${r.id}">
+          <td>${inp('PnL', r.id, 'label', r.label)}</td><td class="w160">${money('PnL', r.id, 'amount', r.amount)}</td>
+          <td class="w40"><button class="icon-btn" data-action="del" data-t="PnL" data-id="${r.id}">🗑</button></td></tr>`).join('')}</tbody></table>
+        <button class="btn ghost small" data-action="addPnl" data-kind="${k.key}">+ بند</button></div>`).join('')
+      : `<div class="empty">لا بنود بعد<br><br><button class="btn primary" data-action="seedPnl">إضافة البنود الأساسية</button></div>`}
+    </div>
+    <div>
+      <div class="card cascade">
+        <h3>من رقم الأعمال إلى النتيجة</h3>
+        ${line('رقم الأعمال', P.revenue, 'total')}
+        ${line('− مستهلكات المخزون', P.consumption, 'minus')}
+        ${line('= الهامش الإجمالي', P.gross, 'sub')}
+        ${line('− التكاليف الثابتة', P.fixed, 'minus')}
+        ${line('− التكاليف المتغيرة', P.variable, 'minus')}
+        ${line('− اهتلاكات السنة', P.depreciation, 'minus')}
+        ${line('= نتيجة الحسابات', P.net, 'total ' + (P.net < 0 ? 'neg' : 'pos'))}
+        <div class="cl"><span>نتيجة الجرد (الميزانية)</span><b>${fmt(R.result.net)}</b><em></em></div>
+        <div class="cl ${Math.abs(P.diff) > 1 && P.hasData ? 'neg' : 'pos'}"><span>الفرق</span><b>${fmt(P.diff)}</b><em></em></div>
+        ${P.breakEven !== null ? `<div class="cl part"><span>عتبة المردودية (رقم الأعمال الأدنى لتغطية التكاليف)</span><b>${fmt(P.breakEven)}</b><em></em></div>` : ''}
+      </div>
+      <p class="hint">الفرق بين النتيجتين طبيعي إن كانت الحسابات غير كاملة، لكنه يدل غالباً على: مخزون لم يُعدّ، دين نُسي، أو مصروف لم يُسجّل.</p>
+    </div>
+  </div>
+  <div class="card">
+    <h3>المعدلات المالية (من الميزانية الختامية)</h3>
+    <div class="ratios">${ratioRows(R).map(r => `<div class="ratio ${r.st}">
+      <div class="rt-top"><b>${r.ar}</b><span class="rt-v">${r.v === null ? '—' : fmtPct(r.v, 1)}</span></div>
+      <small>${r.desc}</small><div class="rt-norm">${r.st === 'good' ? '✔' : r.st === 'bad' ? '✖' : '•'} المقبول: ${r.norm}</div></div>`).join('')}</div>
+  </div>`;
+}
+
+/* ===================== 10. الكشوفات ===================== */
 
 function stepReports(R) {
   const company = db.Companies.find(c => c.id === R.year.companyId) || {};
@@ -385,12 +444,16 @@ function stepReports(R) {
     ['statements', '👤', 'كشف حساب الشريك', 'صفحة مستقلة لكل شريك'],
     ['capital', '🔁', 'حركة رؤوس الأموال', 'السحوبات والإضافات المرجّحة لكل شريك'],
     ['inventory', '📝', 'محضر الجرد', 'ما أُكّد وما خُفّض وما استُبعد'],
+    ['analysis', '📈', 'التحليل المالي وتحليل النتيجة', 'المعدلات مقارنة بالمقبول، ومن رقم الأعمال إلى النتيجة'],
+    ['opening', '🌱', 'الميزانية الافتتاحية للدورة الموالية', 'بعد التوزيع والزكاة والاقتطاعات'],
   ];
+  const locked = R.year.status === 'closed';
+  const errs = runChecks(R).filter(i => i.level === 'error').length;
   return `
   <div class="card print-opts">
     <h3>خيارات الطباعة</h3>
     <div class="grid g4">
-      <label>اللغة <select id="p-lang"><option value="ar">عربية فقط</option><option value="arfr">عربية + فرنسية</option></select></label>
+      <label>اللغة <select id="p-lang"><option value="arfr" selected>عربية + فرنسية</option><option value="ar">عربية فقط</option></select></label>
       <label>الشريك (للكشف) <select id="p-partner"><option value="all">كل الشركاء</option>
         ${R.partners.map(x => `<option value="${x.p.id}">${esc(x.p.name)}</option>`).join('')}</select></label>
       <label class="check"><input type="checkbox" id="p-logo" ${company.logo ? 'checked' : 'disabled'}> إظهار الشعار ${company.logo ? '' : '<small class="muted">(لا شعار — أضفه من صفحة الشركة)</small>'}</label>
@@ -405,13 +468,26 @@ function stepReports(R) {
     <div class="rep-card all"><div class="rep-ico">📚</div><div class="rep-txt"><b>الحزمة الكاملة</b><small>كل الكشوفات دفعة واحدة</small></div>
       <div class="rep-btns"><button class="btn gold small" data-action="print" data-rep="all">🖨 طباعة الكل</button></div></div>
   </div>
-  <p class="hint">في نافذة الطباعة اختر «حفظ بصيغة PDF» إن أردت ملفاً بدل الورق. وفعّل «رسومات الخلفية» لتظهر الألوان.</p>`;
+  <p class="hint">في نافذة الطباعة اختر «حفظ بصيغة PDF» إن أردت ملفاً بدل الورق. وفعّل «رسومات الخلفية» لتظهر الألوان.</p>
+  <div class="grid g2 mt">
+    <div class="card action-card">
+      <div class="ac-ico">📗</div><div><h3>تصدير إلى Excel</h3><p class="muted">ملف ‎.xlsx‎ فيه: التوزيع، الميزانية، الجرد، حركة رؤوس الأموال، الخصوم.</p>
+      <button class="btn ghost" data-action="exportXlsx">⬇ تحميل ملف Excel</button></div>
+    </div>
+    <div class="card action-card ${locked ? 'closed' : ''}">
+      <div class="ac-ico">${locked ? '🔒' : '🔐'}</div><div><h3>${locked ? 'الدورة مقفلة' : 'إقفال الدورة'}</h3>
+      <p class="muted">${locked ? 'النتائج مجمّدة في الشيت (ورقة Results). يمكنك الفتح للتعديل ثم الإقفال من جديد.'
+        : 'يجمّد النتائج ويحفظ لقطة لكل شريك، ويمنع التعديل غير المقصود. أنشئ بعدها الدورة الموالية من صفحة الشركة.'}</p>
+      ${locked ? '<button class="btn ghost" data-action="unlockYear">فتح الإقفال</button>'
+        : `<button class="btn ${errs ? 'ghost' : 'primary'}" data-action="closeYear">🔒 إقفال الدورة ${errs ? `(${errs} أخطاء مفتوحة)` : ''}</button>`}</div>
+    </div>
+  </div>`;
 }
 
 const STEP_RENDER = {
   setup: stepSetup, partners: stepPartners, capital: stepCapital,
   invest: stepAssets, stocks: stepAssets, receivables: stepAssets, treasury: stepAssets,
-  liabilities: stepLiabilities, distribution: stepDistribution, reports: stepReports,
+  liabilities: stepLiabilities, distribution: stepDistribution, analysis: stepAnalysis, reports: stepReports,
 };
 
 /* ===================== عمليات الإضافة ===================== */
