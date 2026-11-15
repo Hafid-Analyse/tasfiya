@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تصفية حساب الشركاء — جرد الأعمال</title>
+  <meta name="theme-color" content="#0f4c45">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230f4c45'/><path d='M14 44h36M20 44V26M32 44V18M44 44V30' stroke='%23d9b25f' stroke-width='6' stroke-linecap='round'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Amiri:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/print.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="brand" id="btn-home" title="الرئيسية">
+      <span class="brand-mark"><svg viewBox="0 0 64 64"><path d="M14 44h36M20 44V26M32 44V18M44 44V30" stroke="currentColor" stroke-width="6" stroke-linecap="round" fill="none"/></svg></span>
+      <span class="brand-txt"><b>تصفية</b><small>جرد الأعمال وحساب الشركاء</small></span>
+    </button>
+    <div class="top-actions">
+      <span id="sync" class="sync"></span>
+      <button class="icon-btn light" id="btn-settings" title="الإعدادات">⚙️</button>
+    </div>
+  </header>
+  <main id="app"><div class="empty">⏳ جاري التحميل…</div></main>
+  <div id="print-root"></div>
+  <div id="toasts"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
